@@ -1,0 +1,10 @@
+{
+  "success": true,
+  "data": {
+    "productId": "LunIA_POS",
+    "restaurantName": "Restaurante Ejemplo",
+    "expirationDate": "2024-12-31T23:59:59.999Z",
+    "licenseType": "annual",
+    "maxDevices": 3
+  }
+}

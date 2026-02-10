@@ -1,0 +1,35 @@
+{
+  "name": "sistema-licencias-saas",
+  "version": "1.0.0",
+  "description": "Sistema de gestión y validación de licencias para software POS",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "keywords": [
+    "license",
+    "saas",
+    "pos",
+    "validation"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.19.2",
+    "helmet": "^7.1.0",
+    "joi": "^17.13.1",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^8.22.1",
+    "morgan": "^1.10.0",
+    "node-cron": "^4.2.1",
+    "nodemailer": "^8.0.1",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}

@@ -1,0 +1,20 @@
+
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 300">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#35D6E5"/>
+      <stop offset="100%" stop-color="#4B2DBD"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(50,50) scale(0.5)">
+    <path d="M256 40c-82 0-148 66-148 148s66 148 148 148 148-66 148-148S338 40 256 40z"
+          fill="url(#grad)"/>
+    <ellipse cx="256" cy="256" rx="210" ry="90"
+             fill="none" stroke="url(#grad)" stroke-width="18"/>
+  </g>
+  <text x="380" y="185"
+        font-family="Inter, Segoe UI, Arial, sans-serif"
+        font-size="140"
+        font-weight="500"
+        fill="#0B1E33">LunIA</text>
+</svg>
