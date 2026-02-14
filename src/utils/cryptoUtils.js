@@ -40,5 +40,9 @@ const validateLicenseKeyFormat = (licenseKey) => {
 
 module.exports = {
   generateLicenseKey,
-  validateLicenseKeyFormat
+  validateLicenseKeyFormat,
+  signLicenseValidationData: (licenseKey, expirationDateISO, maxOfflineHours) => {
+    const dataStr = `${licenseKey}|${expirationDateISO}|${maxOfflineHours}`;
+    return crypto.createHmac('sha256', LICENSE_SECRET).update(dataStr).digest('hex');
+  }
 };

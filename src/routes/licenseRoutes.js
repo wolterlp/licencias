@@ -1,15 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const licenseController = require('../controllers/licenseController');
+const { protect, admin } = require('../middleware/authMiddleware');
 
 // Routes
-router.get('/all', licenseController.listAll); // Must be before /:licenseKey to avoid collision if :licenseKey matches "all"
-router.post('/create', licenseController.create);
+router.get('/all', protect, admin, licenseController.listAll); // Must be before /:licenseKey
+router.post('/create', protect, admin, licenseController.create);
 router.post('/validate', licenseController.validate);
-router.post('/renew', licenseController.renew);
-router.post('/update', licenseController.update);
-router.post('/deactivate', licenseController.deactivate);
-router.delete('/delete', licenseController.delete);
-router.get('/:licenseKey', licenseController.getDetails);
+router.post('/renew', protect, admin, licenseController.renew);
+router.post('/update', protect, admin, licenseController.update);
+router.post('/deactivate', protect, admin, licenseController.deactivate);
+router.delete('/delete', protect, admin, licenseController.delete);
+router.get('/:licenseKey', protect, admin, licenseController.getDetails);
 
 module.exports = router;

@@ -6,6 +6,16 @@ const api = axios.create({
   baseURL: BASE_URL,
 }); 
 
+// Attach JWT token automatically if available
+api.interceptors.request.use((config) => {
+  const userInfo = JSON.parse(localStorage.getItem('userInfo') || 'null');
+  if (userInfo?.token) {
+    config.headers = config.headers || {};
+    config.headers.Authorization = `Bearer ${userInfo.token}`;
+  }
+  return config;
+});
+
 export const loginUser = async (email, password) => {
   try {
     const res = await api.post('/auth/login', { email, password });
@@ -66,5 +76,24 @@ export const deactivateLicense = async (data) => {
 
 export const deleteLicense = async (data) => {
   const res = await api.delete('/licenses/delete', { data }); // Axios delete sends body in 'data' config
+  return res.data;
+};
+
+// Payments
+export const createPayment = async (data) => {
+  const res = await api.post('/payments/create', data);
+  return res.data;
+};
+
+export const getPaymentsByLicense = async (licenseKey, opts = {}) => {
+  const params = new URLSearchParams();
+  if (opts.start) params.set('start', opts.start);
+  if (opts.end) params.set('end', opts.end);
+  const res = await api.get(`/payments/license/${encodeURIComponent(licenseKey)}${params.toString() ? `?${params.toString()}` : ''}`);
+  return res.data;
+};
+
+export const getPaymentSummary = async (licenseKey) => {
+  const res = await api.get(`/payments/summary/${encodeURIComponent(licenseKey)}`);
   return res.data;
 };

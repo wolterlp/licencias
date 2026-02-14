@@ -59,7 +59,7 @@ const licenseSchema = new mongoose.Schema({
   status: {
     type: String,
     required: true,
-    enum: ['active', 'suspended', 'expired'],
+    enum: ['active', 'pending_payment', 'suspended', 'expired'],
     default: 'active'
   },
   maxDevices: {
@@ -84,13 +84,22 @@ const licenseSchema = new mongoose.Schema({
   hardwareId: {
     type: String,
     trim: true
-  }
+  },
+  allowedRoles: [{
+    type: String,
+    trim: true
+  }]
 }, {
   timestamps: true // Creates createdAt and updatedAt
 });
 
 // Index for checking active licenses for a client
 licenseSchema.index({ clientId: 1, status: 1 });
+// Enforce one active license per server (hardwareId)
+licenseSchema.index(
+  { hardwareId: 1, status: 1 },
+  { unique: true, partialFilterExpression: { status: 'active', hardwareId: { $exists: true, $ne: null } } }
+);
 
 // Method to check if license is expired
 licenseSchema.methods.isExpired = function() {

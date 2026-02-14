@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getLicenses, createLicense, renewLicense, deactivateLicense, deleteLicense, loginUser, logoutUser, registerUser, updateLicense } from './api';
+import { getLicenses, createLicense, renewLicense, deactivateLicense, deleteLicense, loginUser, logoutUser, registerUser, updateLicense, createPayment, getPaymentsByLicense, getPaymentSummary } from './api';
 import { FaPlus, FaSync, FaBan, FaCheck, FaCopy, FaTrash, FaSignOutAlt, FaEye } from 'react-icons/fa';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -31,6 +31,37 @@ function App() {
   const [showRenewModal, setShowRenewModal] = useState(false);
   const [renewingLicense, setRenewingLicense] = useState(null);
   const [renewType, setRenewType] = useState('monthly');
+  const [showPaymentsModal, setShowPaymentsModal] = useState(false);
+  const [paymentsLicense, setPaymentsLicense] = useState(null);
+  const [payments, setPayments] = useState([]);
+  const [paymentSummary, setPaymentSummary] = useState({ totalAmount: 0, count: 0 });
+  const [paymentForm, setPaymentForm] = useState({
+    amount: '',
+    currency: 'USD',
+    status: 'paid',
+    method: 'transfer',
+    transactionId: '',
+    periodEnd: ''
+  });
+  const [paymentsFilter, setPaymentsFilter] = useState({ start: '', end: '' });
+  const [licenseFilter, setLicenseFilter] = useState('all');
+  const [licenseStatusFilter, setLicenseStatusFilter] = useState('all');
+  const [showSelectPaymentsModal, setShowSelectPaymentsModal] = useState(false);
+
+  const daysLeft = (date) => {
+    if (!date) return null;
+    const d = new Date(date);
+    const now = new Date();
+    const diff = d.getTime() - now.getTime();
+    return Math.ceil(diff / (1000 * 60 * 60 * 24));
+  };
+  const warningDays = parseInt(import.meta.env.VITE_EXPIRY_WARNING_DAYS || '15', 10);
+  const dayBadgeClass = (d) => {
+    if (d === null) return 'bg-gray-100 text-gray-800';
+    if (d <= 0) return 'bg-red-100 text-red-800';
+    if (d <= warningDays) return 'bg-yellow-100 text-yellow-800';
+    return 'bg-green-100 text-green-800';
+  };
 
   const licenseTypeMap = {
     monthly: 'Mensual',
@@ -211,7 +242,96 @@ function App() {
     setEditingLicense({ ...license });
     setShowDetailsModal(true);
   };
+  
+  const handleOpenPayments = async (license) => {
+    try {
+      setPaymentsLicense(license);
+      setShowPaymentsModal(true);
+      const listRes = await getPaymentsByLicense(license.licenseKey, paymentsFilter);
+      setPayments(listRes.data || []);
+      const summaryRes = await getPaymentSummary(license.licenseKey);
+      setPaymentSummary(summaryRes.data || { totalAmount: 0, count: 0 });
+    } catch (error) {
+      toast.error('Error cargando pagos: ' + (error.response?.data?.message || error.message));
+    }
+  };
 
+  const applyPaymentsFilter = async () => {
+    if (!paymentsLicense) return;
+    try {
+      const listRes = await getPaymentsByLicense(paymentsLicense.licenseKey, paymentsFilter);
+      setPayments(listRes.data || []);
+    } catch (error) {
+      toast.error('Error filtrando pagos: ' + (error.response?.data?.message || error.message));
+    }
+  };
+
+  const exportPaymentsCsv = () => {
+    const headers = ['Fecha','Monto','Moneda','Estado','Método','Transacción'];
+    const rows = payments.map(p => [
+      new Date(p.createdAt).toISOString(),
+      p.amount,
+      p.currency || 'USD',
+      p.status,
+      p.method,
+      p.transactionId || ''
+    ]);
+    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `pagos_${paymentsLicense?.licenseKey}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  const handleCreatePayment = async (e) => {
+    e.preventDefault();
+    if (!paymentsLicense) return;
+    try {
+      const payload = {
+        licenseKey: paymentsLicense.licenseKey,
+        amount: parseFloat(paymentForm.amount),
+        currency: paymentForm.currency,
+        status: paymentForm.status,
+        method: paymentForm.method,
+        transactionId: paymentForm.transactionId || undefined,
+        periodEnd: paymentForm.periodEnd ? new Date(paymentForm.periodEnd) : undefined
+      };
+      await createPayment(payload);
+      toast.success('Pago registrado');
+      const listRes = await getPaymentsByLicense(paymentsLicense.licenseKey);
+      setPayments(listRes.data || []);
+      const summaryRes = await getPaymentSummary(paymentsLicense.licenseKey);
+      setPaymentSummary(summaryRes.data || { totalAmount: 0, count: 0 });
+      setPaymentForm({
+        amount: '',
+        currency: 'USD',
+        status: 'paid',
+        method: 'transfer',
+        transactionId: '',
+        periodEnd: ''
+      });
+      fetchLicenses();
+    } catch (error) {
+      toast.error('Error creando pago: ' + (error.response?.data?.message || error.message));
+    }
+  };
+
+  const isPaidUp = (license) => {
+    if (!license?.expirationDate) return false;
+    const today = new Date();
+    return license.status === 'active' && new Date(license.expirationDate) > today;
+  };
+
+  const filteredLicenses = licenses.filter(l => {
+    if (licenseFilter === 'all') return true;
+    return l.licenseType === licenseFilter;
+  });
+  const statusFilteredLicenses = filteredLicenses.filter(l => {
+    if (licenseStatusFilter === 'all') return true;
+    return l.status === licenseStatusFilter;
+  });
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
     toast.info('Copiado al portapapeles');
@@ -273,6 +393,12 @@ function App() {
               Crear Usuario
             </button>
             <button 
+              onClick={() => setShowSelectPaymentsModal(true)}
+              className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-semibold transition"
+            >
+              Ver Pagos
+            </button>
+            <button 
               onClick={handleLogout}
               className="flex items-center gap-2 bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg font-semibold transition"
             >
@@ -287,7 +413,228 @@ function App() {
           </div>
         </div>
 
-        {/* Stats or Filters could go here */}
+        {/* Payments Modal */}
+        {showPaymentsModal && paymentsLicense && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl p-6 animate-fade-in-up max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-bold text-gray-800">Pagos - {paymentsLicense.clientId}</h2>
+                <button 
+                  onClick={() => { setShowPaymentsModal(false); setPaymentsLicense(null); }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  ✕
+                </button>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <h3 className="font-semibold text-gray-700 mb-3">Resumen</h3>
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                    <p className="text-sm text-gray-600">Total Pagos: <span className="font-bold">${paymentSummary.totalAmount?.toFixed?.(2) || 0}</span></p>
+                    <p className="text-sm text-gray-600">Nº Operaciones: <span className="font-bold">{paymentSummary.count || 0}</span></p>
+                  </div>
+                  <h3 className="font-semibold text-gray-700 mt-6 mb-3">Filtrar</h3>
+                  <div className="grid grid-cols-2 gap-3 mb-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Desde</label>
+                      <input 
+                        type="date"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                        value={paymentsFilter.start}
+                        onChange={e => setPaymentsFilter({ ...paymentsFilter, start: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Hasta</label>
+                      <input 
+                        type="date"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                        value={paymentsFilter.end}
+                        onChange={e => setPaymentsFilter({ ...paymentsFilter, end: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button 
+                      type="button"
+                      onClick={applyPaymentsFilter}
+                      className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-2 rounded-lg"
+                    >
+                      Aplicar Filtro
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={exportPaymentsCsv}
+                      className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg"
+                    >
+                      Exportar CSV
+                    </button>
+                  </div>
+                  <h3 className="font-semibold text-gray-700 mt-6 mb-3">Registrar Pago</h3>
+                  <form onSubmit={handleCreatePayment} className="space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Monto</label>
+                      <input 
+                        type="number" step="0.01" required
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none"
+                        value={paymentForm.amount}
+                        onChange={e => setPaymentForm({ ...paymentForm, amount: e.target.value })}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
+                        <select 
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                          value={paymentForm.status}
+                          onChange={e => setPaymentForm({ ...paymentForm, status: e.target.value })}
+                        >
+                          <option value="paid">Pagado</option>
+                          <option value="pending">Pendiente</option>
+                          <option value="failed">Fallido</option>
+                          <option value="refunded">Reembolsado</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Método</label>
+                        <select 
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                          value={paymentForm.method}
+                          onChange={e => setPaymentForm({ ...paymentForm, method: e.target.value })}
+                        >
+                          <option value="transfer">Transferencia</option>
+                          <option value="cash">Efectivo</option>
+                          <option value="card">Tarjeta</option>
+                          <option value="paypal">PayPal</option>
+                          <option value="stripe">Stripe</option>
+                          <option value="other">Otro</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">ID Transacción</label>
+                      <input 
+                        type="text"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                        value={paymentForm.transactionId}
+                        onChange={e => setPaymentForm({ ...paymentForm, transactionId: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Expira (por pago)</label>
+                      <input 
+                        type="date"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                        value={paymentForm.periodEnd}
+                        onChange={e => setPaymentForm({ ...paymentForm, periodEnd: e.target.value })}
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Si se especifica y el pago está “Pagado”, se renovará la licencia hasta esa fecha.</p>
+                    </div>
+                    <button 
+                      type="submit"
+                      className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-semibold"
+                    >
+                      Guardar Pago
+                    </button>
+                  </form>
+                </div>
+                <div>
+                  <h3 className="font-semibold text-gray-700 mb-3">Historial</h3>
+                  <div className="border border-gray-200 rounded-lg overflow-hidden">
+                    <table className="w-full text-left">
+                      <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 uppercase text-xs tracking-wider">
+                        <tr>
+                          <th className="px-4 py-2">Fecha</th>
+                          <th className="px-4 py-2">Monto</th>
+                          <th className="px-4 py-2">Estado</th>
+                          <th className="px-4 py-2">Método</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {payments.length === 0 ? (
+                          <tr><td colSpan="4" className="px-4 py-3 text-gray-500">Sin pagos</td></tr>
+                        ) : payments.map(p => (
+                          <tr key={p._id}>
+                            <td className="px-4 py-2 text-sm">{new Date(p.createdAt).toLocaleString()}</td>
+                            <td className="px-4 py-2 text-sm">${p.amount?.toFixed?.(2) || p.amount}</td>
+                            <td className="px-4 py-2 text-sm capitalize">{p.status}</td>
+                            <td className="px-4 py-2 text-sm capitalize">{p.method}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {showSelectPaymentsModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-fade-in-up">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-bold text-gray-800">Ver Pagos</h2>
+                <button 
+                  onClick={() => setShowSelectPaymentsModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="space-y-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Selecciona una licencia</label>
+                <select 
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white"
+                  onChange={async (e) => {
+                    const id = e.target.value;
+                    const license = licenses.find(l => l._id === id);
+                    if (license) {
+                      setShowSelectPaymentsModal(false);
+                      await handleOpenPayments(license);
+                    }
+                  }}
+                >
+                  <option value="">Elegir...</option>
+                  {licenses.map(l => (
+                    <option key={l._id} value={l._id}>
+                      {(l.clientName || l.clientId) + ' - ' + (l.restaurantName || '')}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="mb-4 flex items-center gap-3">
+          <label className="text-sm text-gray-700">Filtro tipo:</label>
+          <select 
+            className="px-3 py-2 border border-gray-300 rounded-lg bg-white"
+            value={licenseFilter}
+            onChange={e => setLicenseFilter(e.target.value)}
+          >
+            <option value="all">Todos</option>
+            <option value="monthly">Mensual</option>
+            <option value="quarterly">Trimestral</option>
+            <option value="biannual">Semestral</option>
+            <option value="annual">Anual</option>
+            <option value="perpetual">Vitalicia</option>
+            <option value="trial">Prueba</option>
+          </select>
+          <label className="text-sm text-gray-700 ml-4">Estado:</label>
+          <select 
+            className="px-3 py-2 border border-gray-300 rounded-lg bg-white"
+            value={licenseStatusFilter}
+            onChange={e => setLicenseStatusFilter(e.target.value)}
+          >
+            <option value="all">Todos</option>
+            <option value="active">Activa</option>
+            <option value="expired">Expirada</option>
+            <option value="suspended">Inactiva</option>
+          </select>
+        </div>
 
         {/* List */}
         <div className="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200">
@@ -299,7 +646,9 @@ function App() {
                   <th className="px-6 py-4 font-semibold">Clave de Licencia</th>
                   <th className="px-6 py-4 font-semibold">Tipo</th>
                   <th className="px-6 py-4 font-semibold">Estado</th>
+                  <th className="px-6 py-4 font-semibold">Pago</th>
                   <th className="px-6 py-4 font-semibold">Expiración</th>
+                  <th className="px-6 py-4 font-semibold">Días</th>
                   <th className="px-6 py-4 font-semibold text-right">Acciones</th>
                 </tr>
               </thead>
@@ -317,7 +666,7 @@ function App() {
                     </td>
                   </tr>
                 ) : (
-                  licenses.map((license) => (
+                  statusFilteredLicenses.map((license) => (
                     <tr key={license._id} className="hover:bg-gray-50 transition">
                       <td className="px-6 py-4">
                         <div className="font-medium text-gray-900">{license.clientName || license.clientId}</div>
@@ -346,18 +695,44 @@ function App() {
                       <td className="px-6 py-4">
                         <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
                           license.status === 'active' ? 'bg-green-100 text-green-800' : 
+                          license.status === 'pending_payment' ? 'bg-orange-100 text-orange-800' :
                           license.status === 'expired' ? 'bg-red-100 text-red-800' : 
                           'bg-gray-100 text-gray-800'
                         }`}>
                           {license.status === 'active' ? 'Activa' : 
+                           license.status === 'pending_payment' ? 'Pendiente' :
                            license.status === 'expired' ? 'Expirada' : 'Inactiva'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                          isPaidUp(license) ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'
+                        }`}>
+                          {isPaidUp(license) ? 'Al día' : 'Pendiente'}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-600">
                         {license.expirationDate ? new Date(license.expirationDate).toLocaleDateString() : 'N/A'}
                       </td>
+                      <td className="px-6 py-4">
+                        {(() => {
+                          const d = daysLeft(license.expirationDate);
+                          return (
+                            <span className={`px-2 py-1 rounded-full text-xs font-semibold ${dayBadgeClass(d)}`}>
+                              {d !== null ? d : 'N/A'}
+                            </span>
+                          );
+                        })()}
+                      </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-2">
+                          <button 
+                            onClick={() => handleOpenPayments(license)}
+                            className="p-2 text-purple-600 hover:bg-purple-50 rounded-full transition"
+                            title="Pagos"
+                          >
+                            $
+                          </button>
                           <button 
                             onClick={() => handleViewDetails(license)}
                             className="p-2 text-blue-600 hover:bg-blue-50 rounded-full transition"
@@ -435,14 +810,14 @@ function App() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
                     <div className="flex gap-2 items-center">
                         <select 
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                        value={editingLicense.licenseType}
-                        onChange={e => setEditingLicense({...editingLicense, licenseType: e.target.value})}
+                        value={formData.licenseType}
+                        onChange={e => setFormData({...formData, licenseType: e.target.value})}
                         >
                         <option value="trial">Prueba</option>
                         <option value="monthly">Mensual</option>
@@ -452,28 +827,7 @@ function App() {
                         <option value="perpetual">Vitalicia</option>
                         
                         </select>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                if(window.confirm('¿Desea recalcular la fecha de expiración basada en HOY y el tipo seleccionado?')) {
-                                    calculateNewExpiration(editingLicense.licenseType);
-                                }
-                            }}
-                            className="text-xs bg-gray-200 hover:bg-gray-300 px-2 py-2 rounded text-gray-700 whitespace-nowrap"
-                            title="Recalcular Expiración desde HOY"
-                        >
-                            <FaSync />
-                        </button>
                     </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de Expedición</label>
-                    <input 
-                      type="text" 
-                      disabled
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-500 cursor-not-allowed"
-                      value={editingLicense.startDate ? new Date(editingLicense.startDate).toLocaleDateString() : 'N/A'}
-                    />
                   </div>
                 </div>
 
@@ -691,6 +1045,26 @@ function App() {
                     value={editingLicense.authorizedDomainOrIP}
                     onChange={e => setEditingLicense({...editingLicense, authorizedDomainOrIP: e.target.value})}
                   />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Perfiles permitidos</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {['Admin','Cashier','Waiter','Kitchen','Delivery'].map(role => (
+                      <label key={role} className="flex items-center gap-2 text-sm text-gray-700">
+                        <input
+                          type="checkbox"
+                          checked={Array.isArray(editingLicense.allowedRoles) ? editingLicense.allowedRoles.includes(role) : ['Admin','Cashier'].includes(role)}
+                          onChange={e => {
+                            const current = Array.isArray(editingLicense.allowedRoles) ? editingLicense.allowedRoles : ['Admin','Cashier'];
+                            const next = e.target.checked ? [...new Set([...current, role])] : current.filter(r => r !== role);
+                            setEditingLicense({ ...editingLicense, allowedRoles: next });
+                          }}
+                        />
+                        <span>{{ Admin: 'Administrador', Cashier: 'Cajero', Waiter: 'Mesero', Kitchen: 'Cocina', Delivery: 'Repartidor' }[role]}</span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
 
                 <div>
