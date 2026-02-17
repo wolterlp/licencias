@@ -1,0 +1,14 @@
+curl -X POST http://localhost:3000/api/restaurant/license/server-secret \
+  -H "Content-Type: application/json" \
+  -d "{\"licenseServerSecret\":\"DEV_LICENSE_SECRET_ABC\"}"
+
+
+curl -X GET http://localhost:3000/api/restaurant/config
+
+
+curl -X GET http://localhost:3000/api/restaurant/license/status
+
+
+# Si habilitaste HTTPS en el POS/local:
+curl -k -X GET https://localhost:3000/api/restaurant/config
+curl -k -X GET https://localhost:3000/api/restaurant/license/status

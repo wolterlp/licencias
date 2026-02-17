@@ -15,7 +15,7 @@ const allowedRolesGuard = async (req, res, next) => {
     const baseRoles = ['Admin','Cashier'];
     const roles = paidUp
       ? (Array.isArray(config.license.allowedRoles) && config.license.allowedRoles.length ? config.license.allowedRoles : baseRoles)
-      : baseRoles;
+      : (Array.isArray(config.license.allowedRolesUnpaid) && config.license.allowedRolesUnpaid.length ? config.license.allowedRolesUnpaid : baseRoles);
     const userRole = req.user && req.user.role;
     if (!userRole || !roles.includes(userRole)) {
       return next(createHttpError(403, 'Perfil no habilitado por la licencia'));

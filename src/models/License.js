@@ -89,6 +89,11 @@ const licenseSchema = new mongoose.Schema({
     type: String,
     trim: true
   }]
+  ,
+  allowedRolesUnpaid: [{
+    type: String,
+    trim: true
+  }]
 }, {
   timestamps: true // Creates createdAt and updatedAt
 });

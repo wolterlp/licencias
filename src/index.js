@@ -67,7 +67,35 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 5001;
+const HTTPS_ENABLE = String(process.env.HTTPS_ENABLE || '').toLowerCase() === 'true';
+const HTTPS_PORT = process.env.HTTPS_PORT || 5443;
 
-app.listen(PORT, () => {
-  console.log(`License Server running on port ${PORT}`);
-});
+const startServers = () => {
+  app.listen(PORT, () => {
+    console.log(`HTTP License Server running on port ${PORT}`);
+  });
+
+  if (HTTPS_ENABLE) {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const https = require('https');
+      const keyPath = process.env.SSL_KEY_PATH;
+      const certPath = process.env.SSL_CERT_PATH;
+      if (!keyPath || !certPath) {
+        console.warn('HTTPS habilitado pero faltan SSL_KEY_PATH y/o SSL_CERT_PATH');
+        return;
+      }
+      const key = fs.readFileSync(path.resolve(keyPath));
+      const cert = fs.readFileSync(path.resolve(certPath));
+      const server = https.createServer({ key, cert }, app);
+      server.listen(HTTPS_PORT, () => {
+        console.log(`HTTPS License Server running on port ${HTTPS_PORT}`);
+      });
+    } catch (e) {
+      console.error('Error iniciando HTTPS:', e.message);
+    }
+  }
+};
+
+startServers();

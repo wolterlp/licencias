@@ -1,9 +1,18 @@
 import axios from 'axios';
 
-const BASE_URL = (import.meta.env.VITE_API_URL?.replace('/licenses', '') || 'http://localhost:5001/api');
+const resolveBaseUrl = () => {
+  const explicit = import.meta.env.VITE_API_URL?.replace('/licenses', '');
+  if (explicit) return explicit;
+  const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+  const isHttps = typeof window !== 'undefined' ? window.location.protocol === 'https:' : false;
+  const apiPort = import.meta.env.VITE_API_PORT || 5001;
+  const apiHttpsPort = import.meta.env.VITE_API_HTTPS_PORT || 5443;
+  if (isHttps) return `https://${host}:${apiHttpsPort}/api`;
+  return `http://${host}:${apiPort}/api`;
+};
 
 const api = axios.create({
-  baseURL: BASE_URL,
+  baseURL: resolveBaseUrl(),
 }); 
 
 // Attach JWT token automatically if available
@@ -56,6 +65,11 @@ export const registerUser = async (name, email, password) => {
 
 export const createLicense = async (data) => {
   const res = await api.post('/licenses/create', data);
+  return res.data;
+};
+
+export const validateLicense = async ({ licenseKey, hardwareId }) => {
+  const res = await api.post('/licenses/validate', { licenseKey, hardwareId });
   return res.data;
 };
 

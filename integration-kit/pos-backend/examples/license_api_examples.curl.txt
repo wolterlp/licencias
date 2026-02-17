@@ -1,0 +1,35 @@
+curl -X POST http://localhost:5001/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d "{\"email\":\"ADMIN_EMAIL\",\"password\":\"ADMIN_PASSWORD\"}"
+
+
+curl -X POST http://localhost:5001/api/licenses/create \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ADMIN_JWT_TOKEN" \
+  -d "{\"productId\":\"LunIA_POS\",\"clientId\":\"cliente-001\",\"restaurantName\":\"Restaurante Demo\",\"email\":\"demo@example.com\",\"phone\":\"555-0000\",\"address\":\"Calle 123\",\"licenseType\":\"monthly\",\"maxDevices\":3,\"allowedRoles\":[\"Admin\",\"Cashier\",\"Waiter\",\"Kitchen\",\"Delivery\",\"Manager\"],\"allowedRolesUnpaid\":[\"Admin\",\"Cashier\"]}"
+
+
+curl -X POST http://localhost:5001/api/licenses/validate \
+  -H "Content-Type: application/json" \
+  -d "{\"licenseKey\":\"LICENSE_KEY_AQUI\",\"hardwareId\":\"POS-SERVER-01\"}"
+
+
+curl -X GET http://localhost:3000/api/restaurant/config
+
+
+curl -X GET http://localhost:3000/api/restaurant/license/status
+
+
+# Si habilitaste HTTPS en el servidor de licencias (.env HTTPS_ENABLE=true)
+curl -k -X POST https://localhost:5443/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d "{\"email\":\"ADMIN_EMAIL\",\"password\":\"ADMIN_PASSWORD\"}"
+
+curl -k -X POST https://localhost:5443/api/licenses/create \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ADMIN_JWT_TOKEN" \
+  -d "{\"productId\":\"LunIA_POS\",\"clientId\":\"cliente-001\",\"restaurantName\":\"Restaurante Demo\",\"email\":\"demo@example.com\",\"phone\":\"555-0000\",\"address\":\"Calle 123\",\"licenseType\":\"monthly\",\"maxDevices\":3,\"allowedRoles\":[\"Admin\",\"Cashier\",\"Waiter\",\"Kitchen\",\"Delivery\",\"Manager\"],\"allowedRolesUnpaid\":[\"Admin\",\"Cashier\"]}"
+
+curl -k -X POST https://localhost:5443/api/licenses/validate \
+  -H "Content-Type: application/json" \
+  -d "{\"licenseKey\":\"LICENSE_KEY_AQUI\",\"hardwareId\":\"POS-SERVER-01\"}"

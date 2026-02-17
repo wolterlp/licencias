@@ -1,8 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { getLicenses, createLicense, renewLicense, deactivateLicense, deleteLicense, loginUser, logoutUser, registerUser, updateLicense, createPayment, getPaymentsByLicense, getPaymentSummary } from './api';
-import { FaPlus, FaSync, FaBan, FaCheck, FaCopy, FaTrash, FaSignOutAlt, FaEye } from 'react-icons/fa';
+import { getLicenses, createLicense, renewLicense, deactivateLicense, deleteLicense, loginUser, logoutUser, registerUser, updateLicense, createPayment, getPaymentsByLicense, getPaymentSummary, validateLicense } from './api';
+import { FaPlus, FaSync, FaBan, FaCheck, FaCopy, FaTrash, FaSignOutAlt, FaEye, FaBars } from 'react-icons/fa';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+
+// Presets de roles por producto (constante global)
+const DEFAULT_ROLE_PRESETS = {
+  LunIA_POS: ['Admin','Cashier','Waiter','Kitchen','Delivery','Manager'],
+  BancoCore: ['Cajero','Supervisor','Auditor','Gerente','AtencionClientes','Tesoreria'],
+  AutoServicio: ['KioskUser','Attendant','Technician','Supervisor'],
+  VetClinic: ['Administrador','Recepcion','Veterinario','Caja','Laboratorio','Farmacia']
+};
 
 function App() {
   const [user, setUser] = useState(null);
@@ -47,6 +55,22 @@ function App() {
   const [licenseFilter, setLicenseFilter] = useState('all');
   const [licenseStatusFilter, setLicenseStatusFilter] = useState('all');
   const [showSelectPaymentsModal, setShowSelectPaymentsModal] = useState(false);
+  const [validateNow, setValidateNow] = useState(false);
+  const [hardwareIdForValidation, setHardwareIdForValidation] = useState('');
+  const [rolesText, setRolesText] = useState('Admin,Cashier');
+  const [selectedRoles, setSelectedRoles] = useState([]);
+  const [rolePresets, setRolePresets] = useState(DEFAULT_ROLE_PRESETS);
+  const [showManageProductsModal, setShowManageProductsModal] = useState(false);
+  const [newProductName, setNewProductName] = useState('');
+  const [newProductRolesText, setNewProductRolesText] = useState('');
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+  
+  const HeaderTitle = () => (
+    <div>
+      <h1 className="text-3xl font-bold text-gray-800">Panel de Licencias - lunIA SaaS</h1>
+      <p className="text-gray-500">Administración centralizada de licencias POS</p>
+    </div>
+  );
 
   const daysLeft = (date) => {
     if (!date) return null;
@@ -97,6 +121,22 @@ function App() {
       fetchLicenses();
     }
   }, [user]);
+  
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('rolePresets');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed === 'object') {
+          setRolePresets(parsed);
+        }
+      }
+    } catch {}
+  }, []);
+  const persistRolePresets = (next) => {
+    setRolePresets(next);
+    try { localStorage.setItem('rolePresets', JSON.stringify(next)); } catch {}
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -129,8 +169,33 @@ function App() {
   const handleCreate = async (e) => {
     e.preventDefault();
     try {
-      await createLicense(formData);
+      const payload = {
+        ...formData,
+        allowedRoles: Array.from(new Set([
+          ...selectedRoles,
+          ...rolesText.split(',').map(r => r.trim()).filter(r => r.length > 0)
+        ])),
+        allowedRolesUnpaid: Array.from(new Set([
+          ...(Array.isArray(formData.allowedRolesUnpaid) ? formData.allowedRolesUnpaid : []),
+          // Si no hay definidos, usar Admin,Cashier por defecto
+        ]))
+      };
+      const res = await createLicense(payload);
       toast.success('Licencia creada exitosamente');
+      const created = res?.data;
+      if (created && validateNow && hardwareIdForValidation.trim()) {
+        try {
+          const v = await validateLicense({ licenseKey: created.licenseKey, hardwareId: hardwareIdForValidation.trim() });
+          if (v?.success) {
+            const d = v.data;
+            toast.info(`Validada: estado ${d.status}, roles: ${Array.isArray(d.allowedRoles) ? d.allowedRoles.join(',') : 'N/A'}`);
+          } else {
+            toast.error(`Validación fallida: ${v?.message || 'Error'}`);
+          }
+        } catch (err) {
+          toast.error('Error en validación: ' + (err.response?.data?.message || err.message));
+        }
+      }
       setShowModal(false);
       fetchLicenses();
       setFormData({
@@ -141,8 +206,13 @@ function App() {
         phone: '',
         address: '',
         licenseType: 'monthly',
-        maxDevices: 1
+        maxDevices: 1,
+        allowedRolesUnpaid: ['Admin','Cashier']
       });
+      setValidateNow(false);
+      setHardwareIdForValidation('');
+      setRolesText('Admin,Cashier');
+      setSelectedRoles([]);
     } catch (error) {
       toast.error('Error creando licencia: ' + (error.response?.data?.message || error.message));
     }
@@ -229,7 +299,12 @@ function App() {
   const handleUpdate = async (e) => {
     e.preventDefault();
     try {
-      await updateLicense(editingLicense);
+      const { hardwareId, ...safeEditing } = editingLicense;
+      await updateLicense({
+        ...safeEditing,
+        allowedRoles: Array.isArray(editingLicense.allowedRoles) ? editingLicense.allowedRoles : [],
+        allowedRolesUnpaid: Array.isArray(editingLicense.allowedRolesUnpaid) ? editingLicense.allowedRolesUnpaid : []
+      });
       toast.success('Licencia actualizada correctamente');
       setShowDetailsModal(false);
       fetchLicenses();
@@ -332,9 +407,28 @@ function App() {
     if (licenseStatusFilter === 'all') return true;
     return l.status === licenseStatusFilter;
   });
-  const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text);
-    toast.info('Copiado al portapapeles');
+  const copyToClipboard = async (text) => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(String(text ?? ''));
+        toast.info('Copiado al portapapeles');
+        return;
+      }
+    } catch (e) {}
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = String(text ?? '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      toast.info('Copiado al portapapeles');
+    } catch (e) {
+      toast.error('No se pudo copiar');
+    }
   };
 
   // Si no está logueado, mostrar pantalla de login
@@ -380,17 +474,20 @@ function App() {
   return (
     <div className="min-h-screen bg-gray-100 p-8 font-sans">
       <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-800">Panel de Licencias - lunIA SaaS</h1>
-            <p className="text-gray-500">Administración centralizada de licencias POS</p>
-          </div>
-          <div className="flex gap-4">
+        <div className="flex justify-between items-center mb-4 md:mb-8">
+          <HeaderTitle />
+          <div className="hidden md:flex gap-4">
             <button 
               onClick={() => setShowRegisterModal(true)}
               className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold transition"
             >
               Crear Usuario
+            </button>
+            <button 
+              onClick={() => setShowManageProductsModal(true)}
+              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-semibold transition"
+            >
+              Gestionar Productos
             </button>
             <button 
               onClick={() => setShowSelectPaymentsModal(true)}
@@ -411,7 +508,53 @@ function App() {
               <FaPlus /> Nueva Licencia
             </button>
           </div>
+          <div className="md:hidden">
+            <button
+              onClick={() => setShowMobileMenu(prev => !prev)}
+              className="flex items-center gap-2 bg-gray-900 hover:bg-black text-white px-3 py-2 rounded-lg font-semibold transition"
+              aria-label="Abrir menú"
+            >
+              <FaBars /> Menú
+            </button>
+          </div>
         </div>
+        
+        {showMobileMenu && (
+          <div className="md:hidden mb-4 bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
+            <div className="grid grid-cols-2 gap-2">
+              <button 
+                onClick={() => { setShowRegisterModal(true); setShowMobileMenu(false); }}
+                className="w-full flex items-center justify-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-lg text-sm transition"
+              >
+                Crear Usuario
+              </button>
+              <button 
+                onClick={() => { setShowManageProductsModal(true); setShowMobileMenu(false); }}
+                className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-lg text-sm transition"
+              >
+                Gestionar Productos
+              </button>
+              <button 
+                onClick={() => { setShowSelectPaymentsModal(true); setShowMobileMenu(false); }}
+                className="w-full flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-lg text-sm transition"
+              >
+                Ver Pagos
+              </button>
+              <button 
+                onClick={() => { setShowModal(true); setShowMobileMenu(false); }}
+                className="w-full flex items-center justify-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-2 rounded-lg text-sm transition"
+              >
+                <FaPlus /> Nueva Licencia
+              </button>
+              <button 
+                onClick={() => { handleLogout(); setShowMobileMenu(false); }}
+                className="w-full flex items-center justify-center gap-2 bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-2 rounded-lg text-sm transition"
+              >
+                <FaSignOutAlt /> Salir
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Payments Modal */}
         {showPaymentsModal && paymentsLicense && (
@@ -564,6 +707,118 @@ function App() {
                         ))}
                       </tbody>
                     </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Manage Products Modal */}
+        {showManageProductsModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl p-6 animate-fade-in-up max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-bold text-gray-800">Gestionar Productos y Perfiles</h2>
+                <button 
+                  onClick={() => setShowManageProductsModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  ✕
+                </button>
+              </div>
+              
+              <div className="space-y-6">
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <h3 className="font-semibold text-gray-700 mb-3">Agregar nuevo producto</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Nombre software (Producto)</label>
+                      <input 
+                        type="text"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                        value={newProductName}
+                        onChange={e => setNewProductName(e.target.value)}
+                        placeholder="Ej. VetClinicPlus"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Perfiles sugeridos (comas)</label>
+                      <input 
+                        type="text"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                        value={newProductRolesText}
+                        onChange={e => setNewProductRolesText(e.target.value)}
+                        placeholder="Ej. Administrador,Recepcion,Veterinario,Caja"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end mt-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const name = newProductName.trim();
+                        const rolesArr = newProductRolesText.split(',').map(r => r.trim()).filter(r => r.length > 0);
+                        if (!name || rolesArr.length === 0) return toast.error('Completa nombre y roles');
+                        const next = { ...rolePresets };
+                        next[name] = Array.from(new Set(rolesArr));
+                        persistRolePresets(next);
+                        setNewProductName('');
+                        setNewProductRolesText('');
+                        toast.success('Producto agregado');
+                      }}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold transition"
+                    >
+                      Agregar Producto
+                    </button>
+                  </div>
+                </div>
+                
+                <div>
+                  <h3 className="font-semibold text-gray-700 mb-3">Editar productos existentes</h3>
+                  <div className="space-y-3">
+                    {Object.keys(rolePresets).map(pid => (
+                      <div key={pid} className="border border-gray-200 rounded-lg p-3 bg-white">
+                        <div className="grid grid-cols-2 gap-3 items-end">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Nombre software</label>
+                            <input
+                              type="text"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                              value={pid}
+                              disabled
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Perfiles sugeridos (comas)</label>
+                            <input
+                              type="text"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                              value={(rolePresets[pid] || []).join(',')}
+                              onChange={e => {
+                                const arr = e.target.value.split(',').map(r => r.trim()).filter(r => r.length > 0);
+                                const next = { ...rolePresets, [pid]: Array.from(new Set(arr)) };
+                                persistRolePresets(next);
+                              }}
+                            />
+                          </div>
+                        </div>
+                        <div className="flex justify-end gap-2 mt-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = { ...rolePresets };
+                              delete next[pid];
+                              persistRolePresets(next);
+                              toast.warning('Producto eliminado');
+                            }}
+                            className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm"
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -862,6 +1117,90 @@ function App() {
                     onChange={e => setFormData({...formData, address: e.target.value})}
                   />
                 </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Producto</label>
+                  <select
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none transition"
+                    value={formData.productId}
+                    onChange={e => {
+                      const pid = e.target.value;
+                      setFormData({ ...formData, productId: pid });
+                      setSelectedRoles([]);
+                    }}
+                  >
+                    {Object.keys(rolePresets).map(pid => (
+                      <option key={pid} value={pid}>{pid}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Perfiles sugeridos</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(rolePresets[formData.productId] || []).map(role => (
+                      <label key={role} className="flex items-center gap-2 text-sm text-gray-700">
+                        <input
+                          type="checkbox"
+                          checked={selectedRoles.includes(role)}
+                          onChange={e => {
+                            if (e.target.checked) {
+                              setSelectedRoles(prev => [...new Set([...prev, role])]);
+                            } else {
+                              setSelectedRoles(prev => prev.filter(r => r !== role));
+                            }
+                          }}
+                        />
+                        <span>{role}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Perfiles (separados por comas)</label>
+                  <input 
+                    type="text" 
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none transition"
+                    value={rolesText}
+                    onChange={e => setRolesText(e.target.value)}
+                    placeholder="Ej. Admin,Cashier,Waiter"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Perfiles permitidos con licencia vencida/pago pendiente</label>
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    {(rolePresets[formData.productId] || []).map(role => (
+                      <label key={role} className="flex items-center gap-2 text-sm text-gray-700">
+                        <input
+                          type="checkbox"
+                          checked={(formData.allowedRolesUnpaid || []).includes(role)}
+                          onChange={e => {
+                            const current = Array.isArray(formData.allowedRolesUnpaid) ? formData.allowedRolesUnpaid : [];
+                            const next = e.target.checked ? [...new Set([...current, role])] : current.filter(r => r !== role);
+                            setFormData({ ...formData, allowedRolesUnpaid: next });
+                          }}
+                        />
+                        <span>{role}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <input 
+                    type="text" 
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none transition"
+                    value={(formData.allowedRolesUnpaid || []).join(',')}
+                    onChange={e => {
+                      const arr = e.target.value.split(',').map(r => r.trim()).filter(r => r.length > 0);
+                      const dedup = [];
+                      for (const r of arr) if (!dedup.includes(r)) dedup.push(r);
+                      setFormData({ ...formData, allowedRolesUnpaid: dedup });
+                    }}
+                    placeholder="Ej. Admin,Cashier"
+                  />
+                </div>
+                
+                
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -887,6 +1226,30 @@ function App() {
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none transition"
                       value={formData.maxDevices}
                       onChange={e => setFormData({...formData, maxDevices: parseInt(e.target.value)})}
+                    />
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4 items-end">
+                  <div className="flex items-center gap-2">
+                    <input 
+                      id="validateNow"
+                      type="checkbox"
+                      checked={validateNow}
+                      onChange={e => setValidateNow(e.target.checked)}
+                    />
+                    <label htmlFor="validateNow" className="text-sm font-medium text-gray-700">Validar inmediatamente</label>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Hardware ID (validación)</label>
+                    <input 
+                      type="text" 
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none transition"
+                      value={hardwareIdForValidation}
+                      onChange={e => setHardwareIdForValidation(e.target.value)}
+                      placeholder="Ej. POS-SERVER-01"
+                      disabled={!validateNow}
+                      required={validateNow}
                     />
                   </div>
                 </div>
@@ -1048,23 +1411,71 @@ function App() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Perfiles permitidos</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Perfiles sugeridos según producto</label>
                   <div className="grid grid-cols-2 gap-2">
-                    {['Admin','Cashier','Waiter','Kitchen','Delivery'].map(role => (
+                    {(rolePresets[editingLicense.productId] || []).map(role => (
                       <label key={role} className="flex items-center gap-2 text-sm text-gray-700">
                         <input
                           type="checkbox"
-                          checked={Array.isArray(editingLicense.allowedRoles) ? editingLicense.allowedRoles.includes(role) : ['Admin','Cashier'].includes(role)}
+                          checked={Array.isArray(editingLicense.allowedRoles) ? editingLicense.allowedRoles.includes(role) : false}
                           onChange={e => {
-                            const current = Array.isArray(editingLicense.allowedRoles) ? editingLicense.allowedRoles : ['Admin','Cashier'];
+                            const current = Array.isArray(editingLicense.allowedRoles) ? editingLicense.allowedRoles : [];
                             const next = e.target.checked ? [...new Set([...current, role])] : current.filter(r => r !== role);
                             setEditingLicense({ ...editingLicense, allowedRoles: next });
                           }}
                         />
-                        <span>{{ Admin: 'Administrador', Cashier: 'Cajero', Waiter: 'Mesero', Kitchen: 'Cocina', Delivery: 'Repartidor' }[role]}</span>
+                        <span>{role}</span>
                       </label>
                     ))}
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Perfiles permitidos (separados por comas)</label>
+                  <input
+                    type="text"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    value={Array.isArray(editingLicense.allowedRoles) ? editingLicense.allowedRoles.join(',') : ''}
+                    onChange={e => {
+                      const arr = e.target.value.split(',').map(r => r.trim()).filter(r => r.length > 0);
+                      const dedup = [];
+                      for (const r of arr) if (!dedup.includes(r)) dedup.push(r);
+                      setEditingLicense({ ...editingLicense, allowedRoles: dedup });
+                    }}
+                    placeholder="Ej. Admin,Cashier,Waiter"
+                  />
+                </div>
+                
+                <div className="border-t border-gray-200 pt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Perfiles permitidos con licencia vencida/pago pendiente</label>
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    {(rolePresets[editingLicense.productId] || []).map(role => (
+                      <label key={role} className="flex items-center gap-2 text-sm text-gray-700">
+                        <input
+                          type="checkbox"
+                          checked={Array.isArray(editingLicense.allowedRolesUnpaid) ? editingLicense.allowedRolesUnpaid.includes(role) : false}
+                          onChange={e => {
+                            const current = Array.isArray(editingLicense.allowedRolesUnpaid) ? editingLicense.allowedRolesUnpaid : [];
+                            const next = e.target.checked ? [...new Set([...current, role])] : current.filter(r => r !== role);
+                            setEditingLicense({ ...editingLicense, allowedRolesUnpaid: next });
+                          }}
+                        />
+                        <span>{role}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    value={Array.isArray(editingLicense.allowedRolesUnpaid) ? editingLicense.allowedRolesUnpaid.join(',') : ''}
+                    onChange={e => {
+                      const arr = e.target.value.split(',').map(r => r.trim()).filter(r => r.length > 0);
+                      const dedup = [];
+                      for (const r of arr) if (!dedup.includes(r)) dedup.push(r);
+                      setEditingLicense({ ...editingLicense, allowedRolesUnpaid: dedup });
+                    }}
+                    placeholder="Ej. Admin,Cashier"
+                  />
                 </div>
 
                 <div>

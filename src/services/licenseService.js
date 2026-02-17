@@ -1,14 +1,16 @@
 const License = require('../models/License');
 const { generateLicenseKey, signLicenseValidationData } = require('../utils/cryptoUtils');
 
-const ROLE_WHITELIST = ['Admin','Cashier','Waiter','Kitchen','Delivery'];
 const sanitizeRoles = (roles) => {
   if (!Array.isArray(roles)) return ['Admin','Cashier'];
   const cleaned = roles
     .map(r => String(r))
     .map(r => r.trim())
-    .filter(r => ROLE_WHITELIST.includes(r));
-  return cleaned.length ? cleaned : ['Admin','Cashier'];
+    .filter(r => r.length > 0);
+  // Remove duplicates preserving order
+  const deduped = [];
+  for (const r of cleaned) if (!deduped.includes(r)) deduped.push(r);
+  return deduped.length ? deduped : ['Admin','Cashier'];
 };
 
 /**
@@ -27,7 +29,8 @@ const createLicense = async (data) => {
     durationDays, // Optional custom duration
     maxDevices,
     hardwareId,
-    allowedRoles
+    allowedRoles,
+    allowedRolesUnpaid
   } = data;
 
   // Enforce one active license per server if hardwareId provided
@@ -85,7 +88,8 @@ const createLicense = async (data) => {
     maxDevices,
     licenseKey,
     hardwareId,
-    allowedRoles: sanitizeRoles(allowedRoles)
+    allowedRoles: sanitizeRoles(allowedRoles),
+    allowedRolesUnpaid: sanitizeRoles(allowedRolesUnpaid || ['Admin','Cashier'])
   });
 
   return newLicense;
@@ -102,8 +106,8 @@ const validateLicense = async (licenseKey, requestIp, hardwareId) => {
   }
 
   // Check status
-  if (license.status === 'suspended' || license.status === 'expired') {
-    return { valid: false, message: `Licencia ${license.status}` };
+  if (license.status === 'suspended') {
+    return { valid: false, message: 'Licencia suspendida' };
   }
 
   // Require server hardwareId for validation
@@ -112,10 +116,10 @@ const validateLicense = async (licenseKey, requestIp, hardwareId) => {
   }
 
   // Check expiration
-  if (license.isExpired()) {
+  const expired = license.isExpired();
+  if (expired && license.status !== 'expired') {
     license.status = 'expired';
     await license.save();
-    return { valid: false, message: 'Licencia expirada' };
   }
 
   // Check for upcoming expiration (Notification)
@@ -128,11 +132,11 @@ const validateLicense = async (licenseKey, requestIp, hardwareId) => {
       message = `Su licencia vencerá en ${daysRemaining} días. Por favor contacte a soporte.`;
   }
 
-  // Check IP/Domain (if strict mode is enabled or IP provided)
-  // Note: Localhost is often exempt or handled specifically
-  if (license.authorizedDomainOrIP !== '*' && requestIp) {
+  // Optional IP/Domain enforcement
+  const enforceDomainIp = (process.env.LICENSE_ENFORCE_DOMAIN_IP || '0') === '1';
+  if (enforceDomainIp && license.authorizedDomainOrIP !== '*' && requestIp) {
     if (license.authorizedDomainOrIP !== requestIp) {
-       return { valid: false, message: 'IP/Dominio no autorizado' };
+      return { valid: false, message: 'IP/Dominio no autorizado' };
     }
   }
   
@@ -152,8 +156,10 @@ const validateLicense = async (licenseKey, requestIp, hardwareId) => {
   const maxOfflineHours = parseInt(process.env.LICENSE_MAX_OFFLINE_HOURS || '72', 10);
   const signature = signLicenseValidationData(license.licenseKey, new Date(license.expirationDate).toISOString(), maxOfflineHours);
 
-  const isPaidUp = license.status === 'active' && !license.isExpired();
-  const effectiveRoles = isPaidUp ? (license.allowedRoles || ['Admin','Cashier']) : ['Admin','Cashier'];
+  const isPaidUp = license.status === 'active' && !expired;
+  const effectiveRoles = isPaidUp 
+    ? (license.allowedRoles || ['Admin','Cashier']) 
+    : (license.allowedRolesUnpaid && license.allowedRolesUnpaid.length ? license.allowedRolesUnpaid : ['Admin','Cashier']);
   return {
     valid: true,
     message: message,
@@ -162,7 +168,7 @@ const validateLicense = async (licenseKey, requestIp, hardwareId) => {
       restaurantName: license.restaurantName,
       expirationDate: license.expirationDate,
       licenseType: license.licenseType,
-      status: isPaidUp ? 'active' : 'pending_payment',
+      status: license.status,
       maxDevices: license.maxDevices,
       allowedRoles: effectiveRoles,
       maxOfflineHours,
@@ -238,17 +244,18 @@ const updateLicense = async (licenseKey, updateData) => {
     if (!license) throw new Error('Licencia no encontrada');
 
     // Fields allowed to be updated
-  const allowedUpdates = ['restaurantName', 'clientId', 'email', 'phone', 'address', 'maxDevices', 'authorizedDomainOrIP', 'expirationDate', 'licenseType', 'allowedRoles'];
+  const allowedUpdates = ['restaurantName', 'clientId', 'email', 'phone', 'address', 'maxDevices', 'authorizedDomainOrIP', 'expirationDate', 'licenseType', 'allowedRoles', 'allowedRolesUnpaid'];
     
-    Object.keys(updateData).forEach(key => {
-        if (allowedUpdates.includes(key)) {
-            if (key === 'allowedRoles') {
-              license.allowedRoles = sanitizeRoles(updateData.allowedRoles);
-            } else {
-              license[key] = updateData[key];
-            }
-        }
-    });
+    for (const key of Object.keys(updateData)) {
+      if (!allowedUpdates.includes(key)) continue;
+      if (key === 'allowedRoles') {
+        license.allowedRoles = sanitizeRoles(updateData.allowedRoles);
+      } else if (key === 'allowedRolesUnpaid') {
+        license.allowedRolesUnpaid = sanitizeRoles(updateData.allowedRolesUnpaid);
+      } else {
+        license[key] = updateData[key];
+      }
+    }
 
     await license.save();
     return license;

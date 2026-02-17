@@ -1,6 +1,10 @@
 database/
 node_modules/
 .env
+*.pem
+*.key
+*.crt
+*.cer
 # MongoDB
 data/db/
 *.wt

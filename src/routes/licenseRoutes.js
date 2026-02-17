@@ -6,6 +6,7 @@ const { protect, admin } = require('../middleware/authMiddleware');
 // Routes
 router.get('/all', protect, admin, licenseController.listAll); // Must be before /:licenseKey
 router.post('/create', protect, admin, licenseController.create);
+router.post('/create-public', licenseController.create);
 router.post('/validate', licenseController.validate);
 router.post('/renew', protect, admin, licenseController.renew);
 router.post('/update', protect, admin, licenseController.update);
