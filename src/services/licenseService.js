@@ -30,7 +30,9 @@ const createLicense = async (data) => {
     maxDevices,
     hardwareId,
     allowedRoles,
-    allowedRolesUnpaid
+    allowedRolesUnpaid,
+    electronicInvoicing,
+    kitchensCount
   } = data;
 
   // Enforce one active license per server if hardwareId provided
@@ -89,7 +91,12 @@ const createLicense = async (data) => {
     licenseKey,
     hardwareId,
     allowedRoles: sanitizeRoles(allowedRoles),
-    allowedRolesUnpaid: sanitizeRoles(allowedRolesUnpaid || ['Admin','Cashier'])
+    allowedRolesUnpaid: sanitizeRoles(allowedRolesUnpaid || ['Admin','Cashier']),
+    electronicInvoicing: Boolean(electronicInvoicing),
+    kitchensCount: (() => {
+      const n = parseInt(kitchensCount, 10);
+      return Number.isNaN(n) || n < 1 ? 1 : n;
+    })()
   });
 
   return newLicense;
@@ -173,7 +180,9 @@ const validateLicense = async (licenseKey, requestIp, hardwareId) => {
       allowedRoles: effectiveRoles,
       maxOfflineHours,
       signature,
-      signatureAlgorithm: 'HMAC-SHA256'
+      signatureAlgorithm: 'HMAC-SHA256',
+      electronicInvoicing: !!license.electronicInvoicing,
+      kitchensCount: license.kitchensCount
     }
   };
 };
@@ -244,7 +253,7 @@ const updateLicense = async (licenseKey, updateData) => {
     if (!license) throw new Error('Licencia no encontrada');
 
     // Fields allowed to be updated
-  const allowedUpdates = ['restaurantName', 'clientId', 'email', 'phone', 'address', 'maxDevices', 'authorizedDomainOrIP', 'expirationDate', 'licenseType', 'allowedRoles', 'allowedRolesUnpaid'];
+  const allowedUpdates = ['restaurantName', 'clientId', 'email', 'phone', 'address', 'maxDevices', 'authorizedDomainOrIP', 'expirationDate', 'licenseType', 'allowedRoles', 'allowedRolesUnpaid', 'electronicInvoicing', 'kitchensCount'];
     
     for (const key of Object.keys(updateData)) {
       if (!allowedUpdates.includes(key)) continue;

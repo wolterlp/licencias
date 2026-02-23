@@ -33,7 +33,9 @@ function App() {
     phone: '',
     address: '',
     licenseType: 'monthly',
-    maxDevices: 1
+    maxDevices: 1,
+    electronicInvoicing: false,
+    kitchensCount: '1'
   });
 
   const [showRenewModal, setShowRenewModal] = useState(false);
@@ -207,7 +209,9 @@ function App() {
         address: '',
         licenseType: 'monthly',
         maxDevices: 1,
-        allowedRolesUnpaid: ['Admin','Cashier']
+        allowedRolesUnpaid: ['Admin','Cashier'],
+        electronicInvoicing: false,
+        kitchensCount: '1'
       });
       setValidateNow(false);
       setHardwareIdForValidation('');
@@ -902,6 +906,8 @@ function App() {
                   <th className="px-6 py-4 font-semibold">Tipo</th>
                   <th className="px-6 py-4 font-semibold">Estado</th>
                   <th className="px-6 py-4 font-semibold">Pago</th>
+                  <th className="px-6 py-4 font-semibold">Fact. Elect.</th>
+                  <th className="px-6 py-4 font-semibold">Estaciones</th>
                   <th className="px-6 py-4 font-semibold">Expiración</th>
                   <th className="px-6 py-4 font-semibold">Días</th>
                   <th className="px-6 py-4 font-semibold text-right">Acciones</th>
@@ -965,6 +971,16 @@ function App() {
                         }`}>
                           {isPaidUp(license) ? 'Al día' : 'Pendiente'}
                         </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                          license.electronicInvoicing ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                        }`}>
+                          {license.electronicInvoicing ? 'Sí' : 'No'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-600">
+                        {license.kitchensCount || '1'}
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-600">
                         {license.expirationDate ? new Date(license.expirationDate).toLocaleDateString() : 'N/A'}
@@ -1225,7 +1241,32 @@ function App() {
                       min="1"
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none transition"
                       value={formData.maxDevices}
-                      onChange={e => setFormData({...formData, maxDevices: parseInt(e.target.value)})}
+                      onChange={e => {
+                        const n = parseInt(e.target.value, 10);
+                        setFormData({ ...formData, maxDevices: Number.isNaN(n) ? 1 : n });
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 items-center">
+                  <div className="flex items-center gap-2">
+                    <input 
+                      id="electronicInvoicing"
+                      type="checkbox"
+                      checked={!!formData.electronicInvoicing}
+                      onChange={e => setFormData({ ...formData, electronicInvoicing: e.target.checked })}
+                    />
+                    <label htmlFor="electronicInvoicing" className="text-sm font-medium text-gray-700">Facturación electrónica</label>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Estaciones</label>
+                    <input
+                      type="number"
+                      min="1"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none transition"
+                      value={formData.kitchensCount}
+                      onChange={e => setFormData({ ...formData, kitchensCount: e.target.value })}
                     />
                   </div>
                 </div>
@@ -1383,11 +1424,37 @@ function App() {
                         <label className="block text-sm font-medium text-gray-700 mb-1">Max Dispositivos</label>
                         <input 
                             type="number" 
+                            min="1"
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                             value={editingLicense.maxDevices}
-                            onChange={e => setEditingLicense({...editingLicense, maxDevices: parseInt(e.target.value)})}
+                            onChange={e => {
+                                const n = parseInt(e.target.value, 10);
+                                setEditingLicense({ ...editingLicense, maxDevices: Number.isNaN(n) ? 1 : n });
+                            }}
                         />
                     </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 items-center">
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="editingElectronicInvoicing"
+                      type="checkbox"
+                      checked={!!editingLicense.electronicInvoicing}
+                      onChange={e => setEditingLicense({ ...editingLicense, electronicInvoicing: e.target.checked })}
+                    />
+                    <label htmlFor="editingElectronicInvoicing" className="text-sm font-medium text-gray-700">Facturación electrónica</label>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Estaciones</label>
+                    <input
+                      type="number"
+                      min="1"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                      value={editingLicense.kitchensCount || '1'}
+                      onChange={e => setEditingLicense({ ...editingLicense, kitchensCount: e.target.value })}
+                    />
+                  </div>
                 </div>
                 
                 <div>

@@ -67,6 +67,15 @@ const licenseSchema = new mongoose.Schema({
     required: true,
     default: 1
   },
+  electronicInvoicing: {
+    type: Boolean,
+    default: false
+  },
+  kitchensCount: {
+    type: Number,
+    min: 1,
+    default: 1
+  },
   licenseKey: {
     type: String,
     required: true,
